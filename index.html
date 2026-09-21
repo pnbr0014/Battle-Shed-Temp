@@ -226,7 +226,7 @@ const dateTo = document.getElementById('date-to');
 let activeRange = '24h';
 let tempChart, humidityChart;
 
-const chartBaseOptions = (color) => ({
+const chartBaseOptions = (color, unit) => ({
   type: 'line',
   data: { labels: [], datasets: [{
     data: [],
@@ -235,13 +235,34 @@ const chartBaseOptions = (color) => ({
     fill: true,
     tension: 0.3,
     pointRadius: 0,
+    pointHoverRadius: 5,
+    pointHoverBackgroundColor: color,
+    pointHoverBorderColor: '#12161B',
+    pointHoverBorderWidth: 2,
     borderWidth: 2,
   }]},
   options: {
     responsive: true,
     maintainAspectRatio: false,
     animation: { duration: 300 },
-    plugins: { legend: { display: false } },
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1A2027',
+        titleColor: '#8993A4',
+        bodyColor: '#ECEEF1',
+        bodyFont: { family: 'Space Grotesk', size: 14, weight: '600' },
+        titleFont: { family: 'Inter', size: 12 },
+        borderColor: '#262E38',
+        borderWidth: 1,
+        padding: 10,
+        displayColors: false,
+        callbacks: {
+          label: (ctx) => `${ctx.parsed.y.toFixed(1)}${unit}`,
+        },
+      },
+    },
     scales: {
       x: { ticks: { color: '#8993A4', maxTicksLimit: 6 }, grid: { color: '#262E38' } },
       y: { ticks: { color: '#8993A4' }, grid: { color: '#262E38' } },
@@ -250,8 +271,8 @@ const chartBaseOptions = (color) => ({
 });
 
 function initCharts() {
-  tempChart = new Chart(document.getElementById('temp-chart'), chartBaseOptions('#E0954B'));
-  humidityChart = new Chart(document.getElementById('humidity-chart'), chartBaseOptions('#4FA8C4'));
+  tempChart = new Chart(document.getElementById('temp-chart'), chartBaseOptions('#E0954B', '°C'));
+  humidityChart = new Chart(document.getElementById('humidity-chart'), chartBaseOptions('#4FA8C4', '%'));
 }
 
 function rangeToDates(range) {
