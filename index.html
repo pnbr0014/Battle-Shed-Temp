@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Climate Log</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#12161B">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #12161B;
+    --panel: #1A2027;
+    --panel-line: #262E38;
+    --warm: #E0954B;
+    --cool: #4FA8C4;
+    --text: #ECEEF1;
+    --muted: #8993A4;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 28px 20px 60px;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 22px;
+  }
+  header h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0;
+  }
+  #status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+    display: inline-block;
+    margin-right: 8px;
+  }
+  #status-dot.live { background: #6FCF8F; }
+  .status-line { font-size: 13px; color: var(--muted); }
+
+  .hero {
+    display: flex;
+    gap: 1px;
+    background: var(--panel-line);
+    border: 1px solid var(--panel-line);
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .hero-cell {
+    flex: 1;
+    background: var(--panel);
+    padding: 20px 22px;
+  }
+  .hero-label {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .hero-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 40px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .hero-value span.unit {
+    font-size: 18px;
+    color: var(--muted);
+    font-weight: 500;
+    margin-left: 4px;
+  }
+  .hero-cell:first-child .hero-value { color: var(--warm); }
+  .hero-cell:last-child .hero-value { color: var(--cool); }
+
+  .range-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .segmented {
+    display: inline-flex;
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 10px;
+    padding: 3px;
+  }
+  .segmented button {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 7px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .segmented button.active {
+    background: var(--panel-line);
+    color: var(--text);
+  }
+  input[type="date"] {
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    display: none;
+  }
+  input[type="date"].shown { display: inline-block; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 14px;
+    padding: 18px 20px 8px;
+    margin-bottom: 18px;
+  }
+  .panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .panel-head h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .panel-stats {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .chart-holder { height: 220px; }
+
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+    padding: 40px 0;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Climate Log</h1>
+    <div class="status-line"><span id="status-dot"></span><span id="status-text">Connecting&hellip;</span></div>
+  </header>
+
+  <div class="hero">
+    <div class="hero-cell">
+      <div class="hero-label">Temperature</div>
+      <div class="hero-value"><span id="cur-temp">&ndash;</span><span class="unit">&deg;C</span></div>
+    </div>
+    <div class="hero-cell">
+      <div class="hero-label">Humidity</div>
+      <div class="hero-value"><span id="cur-humidity">&ndash;</span><span class="unit">%</span></div>
+    </div>
+  </div>
+
+  <div class="range-row">
+    <div class="segmented" id="range-buttons">
+      <button data-range="24h" class="active">24h</button>
+      <button data-range="7d">7d</button>
+      <button data-range="30d">30d</button>
+      <button data-range="custom">Custom</button>
+    </div>
+    <input type="date" id="date-from">
+    <input type="date" id="date-to">
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Temperature</h2>
+      <div class="panel-stats" id="temp-stats"></div>
+    </div>
+    <div class="chart-holder"><canvas id="temp-chart"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Humidity</h2>
+      <div class="panel-stats" id="humidity-stats"></div>
+    </div>
+    <div class="chart-holder"><canvas id="humidity-chart"></canvas></div>
+  </div>
+</div>
+
+<script>
+// ---------- CONFIG: fill in your Supabase project details ----------
+const SUPABASE_URL = "https://aytllpbggkvzdzyvuuqx.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_-M3zdJGhZc_fFPSuiCDUyw_79mnuSo0";
+const DEVICE_ID = "esp32-01";
+// ---------------------------------------------------------------------
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const rangeButtons = document.getElementById('range-buttons');
+const dateFrom = document.getElementById('date-from');
+const dateTo = document.getElementById('date-to');
+
+let activeRange = '24h';
+let tempChart, humidityChart;
+
+const chartBaseOptions = (color) => ({
+  type: 'line',
+  data: { labels: [], datasets: [{
+    data: [],
+    borderColor: color,
+    backgroundColor: color + '22',
+    fill: true,
+    tension: 0.3,
+    pointRadius: 0,
+    borderWidth: 2,
+  }]},
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 300 },
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: '#8993A4', maxTicksLimit: 6 }, grid: { color: '#262E38' } },
+      y: { ticks: { color: '#8993A4' }, grid: { color: '#262E38' } },
+    },
+  },
+});
+
+function initCharts() {
+  tempChart = new Chart(document.getElementById('temp-chart'), chartBaseOptions('#E0954B'));
+  humidityChart = new Chart(document.getElementById('humidity-chart'), chartBaseOptions('#4FA8C4'));
+}
+
+function rangeToDates(range) {
+  const now = new Date();
+  let from;
+  if (range === '24h') from = new Date(now - 24 * 3600 * 1000);
+  else if (range === '7d') from = new Date(now - 7 * 24 * 3600 * 1000);
+  else if (range === '30d') from = new Date(now - 30 * 24 * 3600 * 1000);
+  return { from, to: now };
+}
+
+function formatLabel(date, range) {
+  if (range === '24h') return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
+         date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function updateStats(elId, values, unit) {
+  const el = document.getElementById(elId);
+  if (!values.length) { el.textContent = ''; return; }
+  const min = Math.min(...values).toFixed(1);
+  const max = Math.max(...values).toFixed(1);
+  const avg = (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
+  el.textContent = `min ${min}${unit} · avg ${avg}${unit} · max ${max}${unit}`;
+}
+
+async function loadReadings() {
+  let from, to;
+  if (activeRange === 'custom') {
+    if (!dateFrom.value || !dateTo.value) return;
+    from = new Date(dateFrom.value);
+    to = new Date(dateTo.value + 'T23:59:59');
+  } else {
+    ({ from, to } = rangeToDates(activeRange));
+  }
+
+  const { data, error } = await sb
+    .from('readings')
+    .select('temperature_c, humidity_pct, recorded_at')
+    .eq('device_id', DEVICE_ID)
+    .gte('recorded_at', from.toISOString())
+    .lte('recorded_at', to.toISOString())
+    .order('recorded_at', { ascending: true });
+
+  if (error) {
+    statusDot.classList.remove('live');
+    statusText.textContent = 'Connection error';
+    console.error(error);
+    return;
+  }
+
+  statusDot.classList.add('live');
+  statusText.textContent = data.length ? 'Live' : 'No readings in range';
+
+  const labels = data.map(r => formatLabel(new Date(r.recorded_at), activeRange));
+  const temps = data.map(r => r.temperature_c);
+  const humidities = data.map(r => r.humidity_pct);
+
+  tempChart.data.labels = labels;
+  tempChart.data.datasets[0].data = temps;
+  tempChart.update();
+
+  humidityChart.data.labels = labels;
+  humidityChart.data.datasets[0].data = humidities;
+  humidityChart.update();
+
+  updateStats('temp-stats', temps, '°C');
+  updateStats('humidity-stats', humidities, '%');
+
+  if (data.length) {
+    const latest = data[data.length - 1];
+    document.getElementById('cur-temp').textContent = latest.temperature_c.toFixed(1);
+    document.getElementById('cur-humidity').textContent = latest.humidity_pct.toFixed(1);
+  }
+}
+
+rangeButtons.addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  [...rangeButtons.children].forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  activeRange = btn.dataset.range;
+
+  const showCustom = activeRange === 'custom';
+  dateFrom.classList.toggle('shown', showCustom);
+  dateTo.classList.toggle('shown', showCustom);
+
+  if (!showCustom) loadReadings();
+});
+
+dateFrom.addEventListener('change', loadReadings);
+dateTo.addEventListener('change', loadReadings);
+
+initCharts();
+loadReadings();
+setInterval(loadReadings, 60000); // refresh every minute
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('service-worker.js').catch(() => {});
+}
+</script>
+</body>
+</html>
