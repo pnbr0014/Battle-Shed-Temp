@@ -9,6 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
@@ -95,27 +97,14 @@
     margin-bottom: 18px;
     flex-wrap: wrap;
   }
-  .segmented {
-    display: inline-flex;
+  #range-select {
     background: var(--panel);
     border: 1px solid var(--panel-line);
-    border-radius: 10px;
-    padding: 3px;
-  }
-  .segmented button {
-    border: none;
-    background: transparent;
-    color: var(--muted);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 7px 10px;
     font-family: 'Inter', sans-serif;
     font-size: 13px;
-    font-weight: 500;
-    padding: 7px 14px;
-    border-radius: 7px;
-    cursor: pointer;
-  }
-  .segmented button.active {
-    background: var(--panel-line);
-    color: var(--text);
   }
   input[type="date"] {
     background: var(--panel);
@@ -128,6 +117,35 @@
     display: none;
   }
   input[type="date"].shown { display: inline-block; }
+
+  #interval-select {
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    margin-left: auto;
+  }
+
+  .live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .live-badge .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #6FCF8F;
+    animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
 
   .panel {
     background: var(--panel);
@@ -151,6 +169,23 @@
   .panel-stats {
     font-size: 12px;
     color: var(--muted);
+  }
+  .reset-zoom {
+    font-size: 12px;
+    color: var(--cool);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 10px;
+    display: none;
+    font-family: 'Inter', sans-serif;
+  }
+  .reset-zoom.shown { display: inline; }
+  .hint {
+    font-size: 11px;
+    color: var(--muted);
+    margin: -4px 0 10px;
   }
   .chart-holder { height: 220px; }
 
@@ -179,22 +214,39 @@
       <div class="hero-value"><span id="cur-humidity">&ndash;</span><span class="unit">%</span></div>
     </div>
   </div>
+  <div class="live-badge" id="live-badge" style="display:none;">
+    <span class="dot"></span> Live (updating every second)
+  </div>
 
   <div class="range-row">
-    <div class="segmented" id="range-buttons">
-      <button data-range="24h" class="active">24h</button>
-      <button data-range="7d">7d</button>
-      <button data-range="30d">30d</button>
-      <button data-range="custom">Custom</button>
-    </div>
+    <select id="range-select">
+      <option value="1h">Last 1h</option>
+      <option value="2h">Last 2h</option>
+      <option value="4h">Last 4h</option>
+      <option value="8h">Last 8h</option>
+      <option value="12h">Last 12h</option>
+      <option value="24h" selected>Last 24h</option>
+      <option value="7d">Last 7d</option>
+      <option value="30d">Last 30d</option>
+      <option value="custom">Custom</option>
+    </select>
     <input type="date" id="date-from">
     <input type="date" id="date-to">
+    <select id="interval-select" title="How often the sensor logs to the graphs">
+      <option value="30">Log every 30s</option>
+      <option value="60">Log every 1 min</option>
+      <option value="120" selected>Log every 2 min</option>
+      <option value="300">Log every 5 min</option>
+      <option value="600">Log every 10 min</option>
+    </select>
   </div>
+  <div class="hint">Click and drag on a graph to zoom into that time span</div>
 
   <div class="panel">
     <div class="panel-head">
       <h2>Temperature</h2>
       <div class="panel-stats" id="temp-stats"></div>
+      <button class="reset-zoom" id="temp-reset-zoom">Reset zoom</button>
     </div>
     <div class="chart-holder"><canvas id="temp-chart"></canvas></div>
   </div>
@@ -203,6 +255,7 @@
     <div class="panel-head">
       <h2>Humidity</h2>
       <div class="panel-stats" id="humidity-stats"></div>
+      <button class="reset-zoom" id="humidity-reset-zoom">Reset zoom</button>
     </div>
     <div class="chart-holder"><canvas id="humidity-chart"></canvas></div>
   </div>
@@ -219,14 +272,16 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const statusDot = document.getElementById('status-dot');
 const statusText = document.getElementById('status-text');
-const rangeButtons = document.getElementById('range-buttons');
+const rangeSelect = document.getElementById('range-select');
 const dateFrom = document.getElementById('date-from');
 const dateTo = document.getElementById('date-to');
+const tempResetBtn = document.getElementById('temp-reset-zoom');
+const humidityResetBtn = document.getElementById('humidity-reset-zoom');
 
 let activeRange = '24h';
 let tempChart, humidityChart;
 
-const chartBaseOptions = (color, unit) => ({
+const chartBaseOptions = (color, unit, resetBtn) => ({
   type: 'line',
   data: { labels: [], datasets: [{
     data: [],
@@ -262,6 +317,14 @@ const chartBaseOptions = (color, unit) => ({
           label: (ctx) => `${ctx.parsed.y.toFixed(1)}${unit}`,
         },
       },
+      zoom: {
+        pan: { enabled: false },
+        zoom: {
+          drag: { enabled: true, backgroundColor: color + '33', borderColor: color, borderWidth: 1 },
+          mode: 'x',
+          onZoomComplete: () => resetBtn.classList.add('shown'),
+        },
+      },
     },
     scales: {
       x: { ticks: { color: '#8993A4', maxTicksLimit: 6 }, grid: { color: '#262E38' } },
@@ -271,21 +334,25 @@ const chartBaseOptions = (color, unit) => ({
 });
 
 function initCharts() {
-  tempChart = new Chart(document.getElementById('temp-chart'), chartBaseOptions('#E0954B', '°C'));
-  humidityChart = new Chart(document.getElementById('humidity-chart'), chartBaseOptions('#4FA8C4', '%'));
+  tempChart = new Chart(document.getElementById('temp-chart'), chartBaseOptions('#E0954B', '°C', tempResetBtn));
+  humidityChart = new Chart(document.getElementById('humidity-chart'), chartBaseOptions('#4FA8C4', '%', humidityResetBtn));
+
+  tempResetBtn.addEventListener('click', () => { tempChart.resetZoom(); tempResetBtn.classList.remove('shown'); });
+  humidityResetBtn.addEventListener('click', () => { humidityChart.resetZoom(); humidityResetBtn.classList.remove('shown'); });
 }
+
+const RANGE_HOURS = { '1h': 1, '2h': 2, '4h': 4, '8h': 8, '12h': 12, '24h': 24, '7d': 24 * 7, '30d': 24 * 30 };
 
 function rangeToDates(range) {
   const now = new Date();
-  let from;
-  if (range === '24h') from = new Date(now - 24 * 3600 * 1000);
-  else if (range === '7d') from = new Date(now - 7 * 24 * 3600 * 1000);
-  else if (range === '30d') from = new Date(now - 30 * 24 * 3600 * 1000);
+  const hours = RANGE_HOURS[range];
+  const from = new Date(now - hours * 3600 * 1000);
   return { from, to: now };
 }
 
 function formatLabel(date, range) {
-  if (range === '24h') return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const hours = RANGE_HOURS[range];
+  if (hours && hours <= 24) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
          date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
@@ -333,11 +400,15 @@ async function loadReadings() {
 
   tempChart.data.labels = labels;
   tempChart.data.datasets[0].data = temps;
+  tempChart.resetZoom();
   tempChart.update();
+  tempResetBtn.classList.remove('shown');
 
   humidityChart.data.labels = labels;
   humidityChart.data.datasets[0].data = humidities;
+  humidityChart.resetZoom();
   humidityChart.update();
+  humidityResetBtn.classList.remove('shown');
 
   updateStats('temp-stats', temps, '°C');
   updateStats('humidity-stats', humidities, '%');
@@ -349,12 +420,8 @@ async function loadReadings() {
   }
 }
 
-rangeButtons.addEventListener('click', (e) => {
-  const btn = e.target.closest('button');
-  if (!btn) return;
-  [...rangeButtons.children].forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  activeRange = btn.dataset.range;
+rangeSelect.addEventListener('change', () => {
+  activeRange = rangeSelect.value;
 
   const showCustom = activeRange === 'custom';
   dateFrom.classList.toggle('shown', showCustom);
@@ -366,9 +433,43 @@ rangeButtons.addEventListener('click', (e) => {
 dateFrom.addEventListener('change', loadReadings);
 dateTo.addEventListener('change', loadReadings);
 
+// ---------- Live readings (instant, via Supabase Realtime broadcast) ----------
+const liveBadge = document.getElementById('live-badge');
+const liveChannel = sb.channel(`live-${DEVICE_ID}`);
+liveChannel
+  .on('broadcast', { event: 'reading' }, ({ payload }) => {
+    document.getElementById('cur-temp').textContent = payload.temperature_c.toFixed(1);
+    document.getElementById('cur-humidity').textContent = payload.humidity_pct.toFixed(1);
+    liveBadge.style.display = 'inline-flex';
+  })
+  .subscribe();
+
+// ---------- Graph logging interval (writes to device_settings for the ESP32 to pick up) ----------
+const intervalSelect = document.getElementById('interval-select');
+
+async function loadCurrentInterval() {
+  const { data } = await sb
+    .from('device_settings')
+    .select('log_interval_seconds')
+    .eq('device_id', DEVICE_ID)
+    .maybeSingle();
+  if (data) intervalSelect.value = String(data.log_interval_seconds);
+}
+
+intervalSelect.addEventListener('change', async () => {
+  const seconds = parseInt(intervalSelect.value, 10);
+  await sb.from('device_settings').upsert({
+    device_id: DEVICE_ID,
+    log_interval_seconds: seconds,
+    updated_at: new Date().toISOString(),
+  });
+});
+
+loadCurrentInterval();
+
 initCharts();
 loadReadings();
-setInterval(loadReadings, 60000); // refresh every minute
+setInterval(loadReadings, 60000); // refresh graphs every minute
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('service-worker.js').catch(() => {});
