@@ -240,13 +240,15 @@
       <option value="600">Log every 10 min</option>
     </select>
   </div>
-  <div class="hint">Click and drag on a graph to zoom into that time span</div>
+  <div class="hint">
+    Click and drag on a graph to zoom into that time span (both graphs zoom together)
+    <button class="reset-zoom" id="reset-zoom-btn">Reset zoom</button>
+  </div>
 
   <div class="panel">
     <div class="panel-head">
       <h2>Temperature</h2>
       <div class="panel-stats" id="temp-stats"></div>
-      <button class="reset-zoom" id="temp-reset-zoom">Reset zoom</button>
     </div>
     <div class="chart-holder"><canvas id="temp-chart"></canvas></div>
   </div>
@@ -255,7 +257,6 @@
     <div class="panel-head">
       <h2>Humidity</h2>
       <div class="panel-stats" id="humidity-stats"></div>
-      <button class="reset-zoom" id="humidity-reset-zoom">Reset zoom</button>
     </div>
     <div class="chart-holder"><canvas id="humidity-chart"></canvas></div>
   </div>
@@ -275,13 +276,13 @@ const statusText = document.getElementById('status-text');
 const rangeSelect = document.getElementById('range-select');
 const dateFrom = document.getElementById('date-from');
 const dateTo = document.getElementById('date-to');
-const tempResetBtn = document.getElementById('temp-reset-zoom');
-const humidityResetBtn = document.getElementById('humidity-reset-zoom');
+const resetZoomBtn = document.getElementById('reset-zoom-btn');
 
 let activeRange = '24h';
 let tempChart, humidityChart;
+let syncingZoom = false;
 
-const chartBaseOptions = (color, unit, resetBtn) => ({
+const chartBaseOptions = (color, unit, getOtherChart) => ({
   type: 'line',
   data: { labels: [], datasets: [{
     data: [],
@@ -322,7 +323,16 @@ const chartBaseOptions = (color, unit, resetBtn) => ({
         zoom: {
           drag: { enabled: true, backgroundColor: color + '33', borderColor: color, borderWidth: 1 },
           mode: 'x',
-          onZoomComplete: () => resetBtn.classList.add('shown'),
+          onZoomComplete: ({ chart }) => {
+            if (syncingZoom) return;
+            syncingZoom = true;
+            const other = getOtherChart();
+            other.options.scales.x.min = chart.scales.x.min;
+            other.options.scales.x.max = chart.scales.x.max;
+            other.update('none');
+            syncingZoom = false;
+            resetZoomBtn.classList.add('shown');
+          },
         },
       },
     },
@@ -334,11 +344,14 @@ const chartBaseOptions = (color, unit, resetBtn) => ({
 });
 
 function initCharts() {
-  tempChart = new Chart(document.getElementById('temp-chart'), chartBaseOptions('#E0954B', '°C', tempResetBtn));
-  humidityChart = new Chart(document.getElementById('humidity-chart'), chartBaseOptions('#4FA8C4', '%', humidityResetBtn));
+  tempChart = new Chart(document.getElementById('temp-chart'), chartBaseOptions('#E0954B', '°C', () => humidityChart));
+  humidityChart = new Chart(document.getElementById('humidity-chart'), chartBaseOptions('#4FA8C4', '%', () => tempChart));
 
-  tempResetBtn.addEventListener('click', () => { tempChart.resetZoom(); tempResetBtn.classList.remove('shown'); });
-  humidityResetBtn.addEventListener('click', () => { humidityChart.resetZoom(); humidityResetBtn.classList.remove('shown'); });
+  resetZoomBtn.addEventListener('click', () => {
+    tempChart.resetZoom();
+    humidityChart.resetZoom();
+    resetZoomBtn.classList.remove('shown');
+  });
 }
 
 const RANGE_HOURS = { '1h': 1, '2h': 2, '4h': 4, '8h': 8, '12h': 12, '24h': 24, '7d': 24 * 7, '30d': 24 * 30 };
@@ -402,13 +415,13 @@ async function loadReadings() {
   tempChart.data.datasets[0].data = temps;
   tempChart.resetZoom();
   tempChart.update();
-  tempResetBtn.classList.remove('shown');
 
   humidityChart.data.labels = labels;
   humidityChart.data.datasets[0].data = humidities;
   humidityChart.resetZoom();
   humidityChart.update();
-  humidityResetBtn.classList.remove('shown');
+
+  resetZoomBtn.classList.remove('shown');
 
   updateStats('temp-stats', temps, '°C');
   updateStats('humidity-stats', humidities, '%');
